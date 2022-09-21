@@ -1,0 +1,16 @@
+[package]
+name = "puzzle_net"
+version = "0.1.0"
+authors = ["Simon Fernandez <simon.fernandez1@univ-grenoble-alpes.fr>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tui = "0.19.0"
+crossterm = "0.25.0"
+rand = "0.8"
+unicode-segmentation = "1.10.0"
+strum = "0.24"
+strum_macros = "0.24"
+itertools = "0.10.5"
