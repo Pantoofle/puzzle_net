@@ -2,7 +2,7 @@ use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use std::collections::VecDeque;
 use rand::seq::IteratorRandom;
-use itertools::iproduct;
+use itertools::{iproduct, Itertools};
 
 use strum::IntoEnumIterator;
 use strum_macros::{FromRepr, EnumIter};
@@ -42,7 +42,6 @@ impl Distribution<CellOrientation> for Standard {
         CellOrientation::from_repr(rng.gen_range(0..=3)).unwrap()
     }
 }
-
 
 impl CellOrientation{
     pub fn rotate(&self, direction: CellOrientation) -> CellOrientation {
@@ -168,7 +167,6 @@ impl Game {
         game
     }
 
-
     pub fn random_valid(width:usize, height: usize) -> Game {
         let mut rng = rand::thread_rng();
         // Start with an empty canvas
@@ -242,6 +240,8 @@ impl Game {
                 break;
             }
         }
+
+        game.power_cell(width/2, height/2).expect("Could not power the central cell");
         game
     }
 
@@ -278,6 +278,14 @@ impl Game {
                 } else {
                     None
                 })
+            .collect()
+    }
+
+    pub fn get_connected_neighbors(&self, x:usize, y: usize) -> Vec<(CellOrientation, &Cell)> {
+        self.get_cell(x, y).expect("Invalid cell")
+            .connects() // Get all the neighbors we are trying to reach
+            .iter().filter_map(|dir| self.get_neighbor_at_direction(x, y, *dir)
+                                                       .and_then(|c| if c.connects().contains(&dir.reverse()) {Some((*dir, c))} else {None})) // Only keep the valid connections
             .collect()
     }
 
@@ -337,10 +345,49 @@ impl Game {
             .and_then(|cell| Ok(cell.locked = lock))
     }
 
-
-
     pub fn power_cell(&mut self, x: usize, y: usize) -> Result<(), GameError> {
         self.get_mut_cell(x, y)
             .and_then(|cell| Ok(cell.powered = true))
+    }
+
+    pub fn cell_is_valid(&self, x: usize, y: usize) -> Option<bool> {
+        self.get_cell(x, y).and_then(|c| // Try to ge the cell. If does not exist, return None
+            Some(c.connects() // List all the directions that MUST be connected to something
+                .iter().map(|dir|
+                    self.get_neighbor_at_direction(x, y, *dir) // Get the cell at this direction
+                .and_then(|c|
+                    c.matches_constraints(&vec![(dir.reverse(), true)]).then_some(true))
+                ).all(|r| r == Some(true))
+            )
+        )
+    }
+
+    pub fn powered_cells(&self) -> Vec<(usize, usize)> {
+        let mut waiting: VecDeque<(usize, usize, Option<CellOrientation>)> = VecDeque::new();
+        let mut powered: Vec<(usize, usize)> = vec![];
+
+        // Put the cells that are a source of power into the waiting queue
+        self.cells().filter(|(_, _, cell)| cell.powered)
+            .for_each(|(x, y, _)| waiting.push_back((x, y, None)));
+
+        // While there are some cells to process, add their connected cells to the waiting list
+        while let Some((x, y, source_direction)) = waiting.pop_front(){
+            // Add the connected neighbors to the waiting list
+            self.get_connected_neighbors(x, y)// Get the connected cells
+                .iter().filter(|(d, _)| if let Some(sd) = source_direction { *d != sd } else { true }) // Do not explore where we come from
+                .for_each(|(dir, _)| if let Some((cx, cy)) = dir.step_from(x, y) {waiting.push_back((cx, cy, Some(dir.reverse())))}); // Add the valid neighbors to the waiting list
+
+            // Add this cell to the powered list
+            powered.push((x, y));
+        }
+
+        powered
+    }
+
+    pub fn is_completed(&self) -> bool{
+        // Check that all connections are valid.
+        self.cells().all(|(x, y, _)| self.cell_is_valid(x, y) == Some(true)) &&
+            // Check that all cells are powered by the start point
+            self.powered_cells().len() == self.width * self.height
     }
 }
